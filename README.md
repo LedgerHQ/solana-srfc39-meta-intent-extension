@@ -25,7 +25,7 @@ This extension defines how a wallet can recover that intent from the raw instruc
 | Cross-instruction value flow       | `valueFlowNode` on `instructionDisplayNode`                                          |
 | Multi-instruction merge            | Two-rule directional merge with transformer-aware survivor selection                 |
 | Ephemeral account resolution       | `mintAssociationNode`, `ownerAssociationNode`                                        |
-| Transaction-scoped hide conditions | `hideConditionsNode` (`createdInTransaction`, `isSigner`, `accountUsedElsewhere`, …) |
+| Transaction-scoped hide conditions | `hideConditionsNode` (`createdInTransaction`, `isSigner`, `accountUsedElsewhere`, `accountEffectsDisplayedElsewhere`, …) |
 
 ### Design principles
 
@@ -590,7 +590,16 @@ A `target` that fails to resolve (missing argument, non-pubkey leaf, unknown acc
 | `createdInTransaction` | The account appears as an output `(account, 0, null)` of any instruction in the transaction                                                     |
 | `isSigner`             | The account address matches the signer context, or is an ATA whose owner is the signer                                                          |
 | `accountUsedElsewhere` | The account address appears in any other instruction's input or output ports, or in any other instruction's raw account list                    |
+| `accountEffectsDisplayedElsewhere` | The account is represented by a non-hidden surviving item, and every transaction-scoped display effect produced by the hidden instruction for that account is covered by the survivor's value flow, metadata display, or recognized semantic value flow |
 | `isAnotherSigner`      | The account is a transaction signer and is neither the device signer nor an ATA owned by the device signer                                      |
+
+`accountUsedElsewhere` is a structural predicate. It proves that the account address appears outside the current instruction, including raw account-list occurrences. It does not prove that the other instruction displays the consequences of hiding the current one.
+
+`accountEffectsDisplayedElsewhere` is the stronger lifecycle-hiding predicate and is valid only in `hideConditionsNode`. An account effect is any transaction-scoped fact about the target account that the clear-sign pipeline derives from the instruction being hidden and later relies on for display, merge, or hide safety. The generic effect set includes:
+
+- Value movement or reset state for the account, including concrete amount, symbolic `balance` use, token/value kind, and `accountResetNode` semantics
+- Metadata associations declared by the value-flow layer, such as `mintAssociationNode` and `ownerAssociationNode`
+- The visibility obligations created by those facts: if the hidden instruction is the source of an amount, account creation/reset, mint binding, or owner binding used downstream, a non-hidden survivor MUST display that effect directly or cover it through recognized semantic value flow.
 
 
 ### Schema examples
@@ -1039,7 +1048,8 @@ Step 0: Annotate.
 ```
 System:CreateAccountWithSeed  inputs=[(payer=signer, 49.6, native)]    outputs=[(stake_acct, 49.6, native)]
                               accountResets=[(stake_acct, resetValue=argumentAmountNode("amount") → 49.6)]
-                              hideConditions: accountUsedElsewhere(newAccount) AND isSigner(payer)
+                              hideConditions: accountEffectsDisplayedElsewhere(newAccount)
+                                              AND isSigner(payer)
 
 Stake:Initialize              inputs=[]  outputs=[]
                               hideConditions: accountUsedElsewhere(stake)
@@ -1076,8 +1086,11 @@ Step 2: Hide.
 
 ```
 CreateAccountWithSeed:
-  accountUsedElsewhere(newAccount) → ✓  (Initialize and DelegateStake reference stake_acct)
-  isSigner(payer)                  → ✓
+  accountEffectsDisplayedElsewhere(newAccount) → ✓  (DelegateStake is the surviving
+                                                      item and displays the stake_acct
+                                                      native amount sourced from the
+                                                      create/reset effect)
+  isSigner(payer)                           → ✓
                                                                           → HIDDEN
 
 Initialize:
@@ -1111,7 +1124,7 @@ Jupiter:setTokenLedger             inputs=[]   outputs=[]
                                                      Jupiter,
                                                      [sharedAccountsRouteWithTokenLedger,
                                                       routeWithTokenLedger]))]
-                                   hideConditions: accountUsedElsewhere(tokenAccount)
+                                   hideConditions: accountEffectsDisplayedElsewhere(tokenAccount)
 
 Jupiter:sharedAccountsRoute        inputs=[(usdc_ata, 14.69, USDC)]
                                    outputs=[(eth_ata, 0.006, ETH)]
@@ -1175,8 +1188,10 @@ Step 2: Hide.
 
 ```
 setTokenLedger:
-  accountUsedElsewhere(tokenAccount=eth_ata) → ✓   (hop1 references eth_ata; the
-                                                   consumed hop2 also references it)
+  accountEffectsDisplayedElsewhere(tokenAccount=eth_ata) → ✓
+                                                  (the scoped ledger reset is consumed
+                                                   into the surviving swap through the
+                                                   recognized WithTokenLedger value flow)
                                                                           → HIDDEN
 
 sharedAccountsRoute (merged): no hide rules                               → VISIBLE

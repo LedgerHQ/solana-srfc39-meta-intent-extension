@@ -889,9 +889,13 @@ The [symbolic junction guard](#symbolic-junction-guard) blocks this with two che
 
 ### Unrecognized instructions
 
-If any instruction lacks a recognized IDL `instructionNode` (unknown program, unknown discriminator, or a descriptor without a display overlay), the merge engine MUST NOT run. There is no pre-merge cleanup, no merge, and no hide evaluation. Each instruction is rendered with sRFC 39 base per-instruction display, or left as a raw instruction when no display exists. The wallet UX response (blind sign, list verbatim, warn) is out of scope for this specification.
+An instruction is unrecognized when it lacks a recognized IDL `instructionNode` (unknown program, unknown discriminator, or a descriptor without a display overlay). Unrecognized instructions are a security risk because they may mutate accounts whose balance, owner, mint, reset state, or display/hide predicate the merge engine relies on.
 
-Partial merging around an unknown instruction is unsound. The unknown instruction may silently mutate a junction account adjacent to a known instruction without the engine seeing or accounting for it.
+Wallet vendors MAY disable pre-merge cleanup, merge, and hide for the whole transaction whenever any instruction is unrecognized. In that mode, each instruction is rendered with sRFC 39 base per-instruction display, or left as a raw instruction when no display exists. The wallet UX response (blind sign, list verbatim, warn) is out of scope for this specification.
+
+Wallet vendors MAY run the merge engine around unrecognized instructions only when they can verify that those instructions do not write to any account used by the merge engine. Partial merging is unsafe when an unrecognized instruction can mutate any merge-relevant account.
+
+Common sidecar instructions, including memo, compute-budget, priority-fee or tip patterns, and other ecosystem-standard programs, should still have curated IDLs so devices can distinguish benign instructions from unknown value movement.
 
 ### `isSigner` constraint
 
